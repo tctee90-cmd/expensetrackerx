@@ -188,7 +188,6 @@
       border: 1px solid var(--b1);
       border-top: 1px solid var(--btop);
       border-bottom: 1px solid rgba(0,0,0,.55);
-      cursor: pointer;
       box-shadow:
         inset 0 1px 0 rgba(255,255,255,.14),
         0 5px 0 rgba(0,0,0,.65),
@@ -274,7 +273,9 @@
       border-bottom: 1px solid rgba(0,0,0,.45);
       border-radius: 12px; padding: 10px;
       box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 3px 0 rgba(0,0,0,.55), 0 7px 14px rgba(0,0,0,.3);
+      transition: transform .15s ease, box-shadow .15s;
     }
+    .category-card:active { transform: scale(.97); box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 0 rgba(0,0,0,.55), 0 3px 8px rgba(0,0,0,.3); }
     .category-top { display: flex; justify-content: space-between; gap: 6px; align-items: center; }
     .category-name { font-size: 11px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .category-percent { font-size: 10px; font-weight: 600; color: var(--sub); font-family: 'JetBrains Mono', monospace; }
@@ -465,7 +466,7 @@
       <div class="card">
         <h2>Transactions</h2>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
-          <div><label>Month</label><input id="filterMonth" type="month" style="height:52px;line-height:52px"></div>
+          <div><label>Month</label><input id="filterMonth" type="month"></div>
           <div><label>Currency</label><select id="filterCurrency"><option value="">All</option><option value="SGD">SGD</option><option value="MYR">MYR</option></select></div>
           <div><label>Category</label><select id="filterCategory"></select></div>
         </div>
@@ -551,7 +552,25 @@
   function monthName(){return new Date().toLocaleDateString(undefined,{month:'long',year:'numeric'})}
   function catMap(currency){const m={};records.forEach(r=>{if((r.currency||'SGD')!==currency||!r.date.startsWith(month()))return;m[r.category]=(m[r.category]||0)+Number(r.amount||0)});return m}
   function renderDashboard(){const mn=monthName(), sgd=totals('SGD',true), myr=totals('MYR',true);byId('sgdMonthLabel').textContent='SGD '+mn;byId('myrMonthLabel').textContent='MYR '+mn;byId('monthSgdBox').textContent=money(sgd,'SGD');byId('monthMyrBox').textContent=money(myr,'MYR');byId('dashboardToday').textContent='Today: '+new Date().toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});byId('dashboardMonth').textContent='Current month: '+mn;byId('totalBudgetBox').textContent=money(budgetSGD,'SGD');const remain=budgetSGD-sgd,note=byId('sgdBudgetNote');note.innerHTML='<span class="budget-mini-label">Remaining</span><span class="remain-number">'+money(remain,'SGD')+'</span>';note.className='budget-mini '+(budgetSGD<=0?'':remain<0?'over':remain<=budgetSGD*.2?'warn':'');byId('trendBudgetBadge').textContent='SGD budget: '+money(budgetSGD,'SGD');renderCategoryCards()}
-  function renderCategoryCards(){const m=catMap('SGD');byId('sgdCategoryCards').innerHTML=categories.map(cat=>{const spent=Number(m[cat]||0),budget=Number(categoryBudgets[cat]||0),pct=budget>0?spent/budget*100:0,cls=pct>=100?'over':pct>=80?'warn':'';return `<div class="category-card"><div class="category-top"><div class="category-name">${esc(cat)}</div><div class="category-percent">${budget>0?pct.toFixed(0)+'%':'No budget'}</div></div><div class="bar-track"><div class="bar-fill ${cls}" style="width:${Math.min(pct,100)}%"></div></div><div class="section-note">${money(spent,'SGD')} / ${budget>0?money(budget,'SGD'):'No budget set'}</div></div>`}).join('')||'<div class="empty">No categories.</div>'}
+  function renderCategoryCards(){
+    const m=catMap('SGD');
+    byId('sgdCategoryCards').innerHTML=categories.map(cat=>{
+      const spent=Number(m[cat]||0),budget=Number(categoryBudgets[cat]||0),pct=budget>0?spent/budget*100:0,cls=pct>=100?'over':pct>=80?'warn':'';
+      return `<div class="category-card" style="cursor:pointer" data-cat="${esc(cat)}"><div class="category-top"><div class="category-name">${esc(cat)}</div><div class="category-percent">${budget>0?pct.toFixed(0)+'%':'No budget'}</div></div><div class="bar-track"><div class="bar-fill ${cls}" style="width:${Math.min(pct,100)}%"></div></div><div class="section-note">${money(spent,'SGD')} / ${budget>0?money(budget,'SGD'):'No budget set'}</div></div>`;
+    }).join('')||'<div class="empty">No categories.</div>';
+    // Wire clicks
+    byId('sgdCategoryCards').querySelectorAll('[data-cat]').forEach(card=>{
+      card.addEventListener('click',()=>{
+        const cat=card.dataset.cat;
+        byId('filterCategory').value=cat;
+        byId('filterCurrency').value='SGD';
+        byId('filterMonth').value=month();
+        renderTable();
+        switchTab('addTab', true);
+        setTimeout(()=>{const el=byId('tableArea');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},200);
+      });
+    });
+  }
   function renderTrendChart(){const c=byId('trendCanvas'),ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);const labels=[],sgd=[],myr=[],now=new Date();for(let i=11;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1),key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');labels.push(d.toLocaleString(undefined,{month:'short'}));sgd.push(records.filter(r=>(r.currency||'SGD')==='SGD'&&r.date.startsWith(key)).reduce((a,r)=>a+Number(r.amount||0),0));myr.push(records.filter(r=>(r.currency||'SGD')==='MYR'&&r.date.startsWith(key)).reduce((a,r)=>a+Number(r.amount||0),0))}let max=Math.max(budgetSGD,...sgd,...myr,1);const L=38,R=14,T=24,B=34,W=c.width-L-R,H=c.height-T-B;ctx.strokeStyle='rgba(255,255,255,.06)';ctx.lineWidth=1;for(let g=0;g<4;g++){const y=T+H/3*g;ctx.beginPath();ctx.moveTo(L,y);ctx.lineTo(L+W,y);ctx.stroke()}if(budgetSGD>0){const y=T+H-(budgetSGD/max)*H;ctx.beginPath();ctx.setLineDash([6,6]);ctx.moveTo(L,y);ctx.lineTo(L+W,y);ctx.strokeStyle='#a78bfa';ctx.lineWidth=1.5;ctx.stroke();ctx.setLineDash([])}function line(vals,color,prefix){const pts=vals.map((v,i)=>({x:L+W/(vals.length-1)*i,y:T+H-(v/max)*H,v}));ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y));ctx.strokeStyle=color;ctx.lineWidth=3;ctx.stroke();pts.forEach(p=>{ctx.beginPath();ctx.arc(p.x,p.y,3,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();ctx.fillStyle='#6b7591';ctx.font='9px Arial';ctx.textAlign='center';ctx.fillText(Math.round(p.v),p.x,p.y-10)})}line(sgd,'#38bdf8','S$');line(myr,'#fb923c','RM');ctx.fillStyle='#38bdf8';ctx.font='9px Arial';ctx.fillText('● SGD',L,14);ctx.fillStyle='#fb923c';ctx.fillText('● MYR',L+55,14);ctx.font='8px Arial';ctx.fillStyle='#3e4560';ctx.textAlign='center';labels.forEach((m,i)=>ctx.fillText(m,L+W/(labels.length-1)*i,c.height-10))}
   function renderRecent(){
     const area=byId('recentArea');
@@ -606,12 +625,21 @@
     }
     _pendingDel.delete(id);
     records=records.filter(r=>r.id!==id);save();renderAll();setStatus('Transaction deleted.');
-  }function switchTab(id){['dashboardTab','addTab','settingsTab'].forEach(t=>byId(t).className=t===id?'tab-section active':'tab-section');window.scrollTo({top:0,behavior:'smooth'})}
+  }function switchTab(id, keepFilters=false){
+    ['dashboardTab','addTab','settingsTab'].forEach(t=>byId(t).className=t===id?'tab-section active':'tab-section');
+    // Reset filters when arriving at addTab unless a card drill-down set them
+    if(id==='addTab'&&!keepFilters){
+      byId('filterMonth').value='';
+      byId('filterCurrency').value='';
+      byId('filterCategory').value='';
+      renderTable();
+    }
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
   function exportJson(){const blob=new Blob([JSON.stringify({records,categories,budgetSGD,categoryBudgets},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='expense-tracker-sgd-myr-backup.json';a.click();URL.revokeObjectURL(url);setStatus('Backup exported.')}function importJson(e){const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=ev=>{try{const d=JSON.parse(ev.target.result);records=(d.records||d||[]).map(r=>({...r,currency:r.currency||'SGD'}));categories=Array.isArray(d.categories)&&d.categories.length?d.categories:categories;budgetSGD=Number(d.budgetSGD||(d.budgets&&d.budgets.SGD)||0);categoryBudgets=d.categoryBudgets||{};save();refreshCategories();clearForm();renderAll();setStatus('Import successful.')}catch(err){setStatus('Invalid JSON file.')}};reader.readAsText(file)}
   load();refreshCategories();clearForm();renderAll();switchTab('dashboardTab');
 
-  // Mini card clicks → go to Transactions (addTab)
-  document.querySelectorAll('.dash-box').forEach(box=>{box.addEventListener('click',()=>switchTab('addTab'))});
+  // dash-box clicks removed — currency/budget cards are view-only
 
   // Swipe gesture navigation
   const tabs=['dashboardTab','addTab','settingsTab'];
