@@ -290,6 +290,8 @@
     .chart-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--s3); border: 1px solid var(--b2); color: var(--sub); font-size: 10px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
     .chart-card { background: var(--s2); border: 1px solid var(--b1); border-radius: 12px; padding: 8px; box-shadow: inset 0 2px 6px rgba(0,0,0,.35); }
     canvas { width: 100%; height: auto; max-width: 100%; background: var(--s1); border: 1px solid var(--b0); border-radius: 10px; }
+    .ring-hero canvas, .ring-hero .ring-canvas, #ringCanvas { all: unset; display: block; width: 240px !important; height: 240px !important; }
+    #ringCanvas, .ring-canvas { background: transparent !important; border: none !important; box-shadow: none !important; border-radius: 0 !important; outline: none !important; }
 
     /* ── Forms ── */
     label { display: block; margin-bottom: 4px; color: var(--dim); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
@@ -404,6 +406,36 @@
     .smallbtn { width: auto; min-height: 26px; padding: 3px 10px; font-size: 11px; border-radius: 7px; }
     .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.2); margin: 3px 3px 0 0; font-size: 10px; color: var(--bud); font-weight: 500; }
 
+    /* ── Budget Ring Hero ── */
+    /* ── Ring hero — no card border, ring + side stats ── */
+    .ring-hero {
+      position: relative;
+      display: flex; flex-direction: row; align-items: center; justify-content: center;
+      gap: 20px;
+      padding: 6px 12px 12px;
+      margin-top: -6px;
+      background: transparent;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    .ring-hero::before { display: none !important; }
+    .ring-wrap { position: relative; width: 240px; height: 240px; flex-shrink: 0; }
+    .ring-canvas { width: 240px; height: 240px; background: transparent !important; border: none !important; box-shadow: none !important; }
+    .ring-center {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+    .ring-label { font-size: 8px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.35); margin-bottom: 3px; }
+    .ring-amount { font-family: 'JetBrains Mono', monospace; font-size: clamp(20px, 5.5vw, 26px); font-weight: 800; color: #ffffff; letter-spacing: -.04em; line-height: 1; text-shadow: 0 0 20px rgba(255,255,255,.25); }
+    .ring-remain-label { font-size: 7px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.28); margin-top: 8px; }
+    .ring-remain { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; }
+    /* Side stats — bare, no box */
+    .ring-stats { display: flex; flex-direction: column; gap: 18px; justify-content: center; }
+    .ring-stat { padding: 0; min-width: 80px; }
+    .ring-stat-label { font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); margin-bottom: 3px; }
+    .ring-stat-val { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 700; color: var(--text); line-height: 1; white-space: nowrap; }
+    .ring-no-budget { color: var(--dim); font-size: 12px; text-align: center; padding: 10px 0; }
     @media(max-width:640px){
       .wrap { padding: 10px 10px 20px; }
       .dash-grid, .currency-row { grid-template-columns: 1fr 1fr; }
@@ -428,14 +460,31 @@
     </div>
 
     <div id="dashboardTab" class="tab-section active">
+
+      <!-- SGD BUDGET RING HERO -->
+      <div class="ring-hero">
+        <div class="ring-wrap">
+          <canvas id="ringCanvas" class="ring-canvas" width="480" height="480"></canvas>
+          <div class="ring-center">
+            <div class="ring-label">Spent this month</div>
+            <div class="ring-amount" id="ringSpent">S$ 0.00</div>
+            <div class="ring-remain-label">Remaining</div>
+            <div class="ring-remain" id="ringRemain">—</div>
+          </div>
+        </div>
+        <div class="ring-stats">
+          <div class="ring-stat"><div class="ring-stat-label">Budget</div><div class="ring-stat-val" id="ringStat1">—</div></div>
+          <div class="ring-stat"><div class="ring-stat-label">Daily Avg (days)</div><div class="ring-stat-val" id="ringStat2">—</div></div>
+          <div class="ring-stat"><div class="ring-stat-label">Days Left</div><div class="ring-stat-val" id="ringStat3">—</div></div>
+        </div>
+      </div>
+
       <div class="card">
         
-        <div class="dash-box budget-card" style="margin-top:10px"><div class="budget-row"><div><div class="dash-label">SGD Total Budget</div><div class="dash-value" id="totalBudgetBox">S$0.00</div></div><div class="budget-mini" id="sgdBudgetNote"><span class="budget-mini-label">Remaining</span>S$0.00</div></div></div>
         <div class="currency-row">
           <div class="dash-box sgd-card" data-filter="SGD"><div class="dash-label" id="sgdMonthLabel">SGD Month</div><div class="dash-value small-money" id="monthSgdBox">S$0.00</div></div>
           <div class="dash-box myr-card" data-filter="MYR"><div class="dash-label" id="myrMonthLabel">MYR Month</div><div class="dash-value small-money" id="monthMyrBox">RM0.00</div></div>
         </div>
-        <div class="dash-box budget-card" style="display:none"><div class="dash-label">SGD Total Budget</div><div class="dash-value" id="totalBudgetBox">S$0.00</div><div class="budget-mini" id="sgdBudgetNote">Remaining budget: S$0.00</div></div>
         <h3 style="margin-top:14px">SGD Category Budget Status</h3><div id="sgdCategoryCards" class="category-grid"></div>
       </div>
 
@@ -554,7 +603,118 @@
   function totals(currency,current=false){return records.filter(r=>(r.currency||'SGD')===currency&&(!current||r.date.startsWith(month()))).reduce((a,r)=>a+Number(r.amount||0),0)}
   function monthName(){return new Date().toLocaleDateString(undefined,{month:'long',year:'numeric'})}
   function catMap(currency){const m={};records.forEach(r=>{if((r.currency||'SGD')!==currency||!r.date.startsWith(month()))return;m[r.category]=(m[r.category]||0)+Number(r.amount||0)});return m}
-  function renderDashboard(){const mn=monthName(), sgd=totals('SGD',true), myr=totals('MYR',true);byId('sgdMonthLabel').textContent='SGD '+mn;byId('myrMonthLabel').textContent='MYR '+mn;byId('monthSgdBox').textContent=money(sgd,'SGD');byId('monthMyrBox').textContent=money(myr,'MYR');byId('dashboardToday').textContent='Today: '+new Date().toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});byId('dashboardMonth').textContent='Current month: '+mn;byId('totalBudgetBox').textContent=money(budgetSGD,'SGD');const remain=budgetSGD-sgd,note=byId('sgdBudgetNote');note.innerHTML='<span class="budget-mini-label">Remaining</span><span class="remain-number">'+money(remain,'SGD')+'</span>';note.className='budget-mini '+(budgetSGD<=0?'':remain<0?'over':remain<=budgetSGD*.2?'warn':'');byId('trendBudgetBadge').textContent='SGD budget: '+money(budgetSGD,'SGD');renderCategoryCards()}
+  function renderRing(){
+    const c=byId('ringCanvas');
+    if(!c)return;
+    const ctx=c.getContext('2d');
+    const W=c.width,H=c.height,cx=W/2,cy=H/2,r=W*0.38,thick=W*0.095;
+    ctx.clearRect(0,0,W,H);
+    // Solid black background circle
+    ctx.beginPath();ctx.arc(cx,cy,r-thick/2,0,Math.PI*2);
+    ctx.fillStyle='#000000';ctx.fill();
+    const mn=month();
+    const spent=records.filter(r=>(r.currency||'SGD')==='SGD'&&r.date.startsWith(mn)).reduce((a,r)=>a+Number(r.amount||0),0);
+    const budget=Number(budgetSGD||0);
+    const pct=budget>0?Math.min(spent/budget,1):0;
+
+    // ── Colour helper: interpolate across #22c55e → #eab308 → #ef4444 ──
+    function arcColor(t){ // t: 0=safe, 1=over
+      const stops=[
+        [0,   [34,197,94]],   // green
+        [0.6, [34,197,94]],   // green holds
+        [0.8, [234,179,8]],   // yellow
+        [1.0, [239,68,68]],   // red
+      ];
+      let s0=stops[0],s1=stops[stops.length-1];
+      for(let i=0;i<stops.length-1;i++){if(t>=stops[i][0]&&t<=stops[i+1][0]){s0=stops[i];s1=stops[i+1];break;}}
+      const tt=s1[0]===s0[0]?1:(t-s0[0])/(s1[0]-s0[0]);
+      return s0[1].map((v,i)=>Math.round(v+(s1[1][i]-v)*tt));
+    }
+
+    // ── 1. Drop shadow ──
+    ctx.save();ctx.translate(W*.01,H*.016);
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle='rgba(0,0,0,.6)';ctx.lineWidth=thick*1.2;ctx.stroke();
+    ctx.restore();
+
+    // ── 2. Clean dark track with subtle bevel ──
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle='rgba(255,255,255,.05)';ctx.lineWidth=thick;ctx.stroke();
+    // track inner shadow
+    const bev=ctx.createLinearGradient(cx-r,cy-r,cx+r,cy+r);
+    bev.addColorStop(0,'rgba(0,0,0,.45)');bev.addColorStop(.45,'rgba(0,0,0,.15)');
+    bev.addColorStop(.55,'rgba(255,255,255,.04)');bev.addColorStop(1,'rgba(255,255,255,.07)');
+    ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);
+    ctx.strokeStyle=bev;ctx.lineWidth=thick*.85;ctx.stroke();
+
+    if(budget>0){
+      const start=-Math.PI/2, end=start+Math.PI*2*pct;
+      // ── 3. Glow halo (drawn first, under arc) ──
+      const endColor=arcColor(pct);
+      const glowC=`rgb(${endColor.join(',')})`;
+      ctx.save();
+      ctx.shadowColor=glowC;ctx.shadowBlur=W*0.08;
+      ctx.beginPath();ctx.arc(cx,cy,r,start,end);
+      ctx.strokeStyle=glowC+'55';ctx.lineWidth=thick*1.6;ctx.lineCap='round';ctx.stroke();
+      ctx.shadowBlur=W*0.14;
+      ctx.beginPath();ctx.arc(cx,cy,r,start,end);
+      ctx.strokeStyle=glowC+'25';ctx.lineWidth=thick*2.4;ctx.lineCap='round';ctx.stroke();
+      ctx.restore();
+
+      // ── 4. Segmented colour arc (smooth gradient) ──
+      const segs=Math.max(3,Math.round(pct*180));
+      const da=(end-start)/segs;
+      for(let i=0;i<segs;i++){
+        const t=(i+1)/segs*pct; // colour advances with spending
+        const [rv,gv,bv]=arcColor(t);
+        ctx.beginPath();ctx.arc(cx,cy,r,start+da*i,start+da*(i+1)+.006);
+        ctx.strokeStyle=`rgb(${rv},${gv},${bv})`;
+        ctx.lineWidth=thick;ctx.lineCap=i===0?'round':'butt';ctx.stroke();
+      }
+      // End cap round
+      ctx.beginPath();ctx.arc(cx,cy,r,end-.008,end);
+      ctx.lineCap='round';ctx.stroke();
+
+      // ── 5. Gloss sheen on top of arc ──
+      const gl=ctx.createLinearGradient(cx,cy-r-thick*.5,cx,cy-r+thick*.5);
+      gl.addColorStop(0,'rgba(255,255,255,.38)');
+      gl.addColorStop(.5,'rgba(255,255,255,.1)');
+      gl.addColorStop(1,'transparent');
+      ctx.beginPath();ctx.arc(cx,cy,r,start,Math.min(end,start+Math.PI*.9));
+      ctx.strokeStyle=gl;ctx.lineWidth=thick*.3;ctx.lineCap='round';ctx.stroke();
+
+      // ── 6. Glowing end-cap sphere ──
+      if(pct>0.025){
+        const ex=cx+Math.cos(end)*r, ey=cy+Math.sin(end)*r;
+        const dr=thick*.55;
+        const [rv,gv,bv]=arcColor(pct);
+        const dg=ctx.createRadialGradient(ex-dr*.3,ey-dr*.35,0,ex,ey,dr);
+        dg.addColorStop(0,'rgba(255,255,255,.9)');
+        dg.addColorStop(.35,`rgba(${rv},${gv},${bv},.95)`);
+        dg.addColorStop(1,`rgba(${Math.round(rv*.6)},${Math.round(gv*.6)},${Math.round(bv*.6)},.8)`);
+        ctx.beginPath();ctx.arc(ex,ey,dr,0,Math.PI*2);
+        ctx.fillStyle=dg;ctx.fill();
+        ctx.shadowColor=`rgb(${rv},${gv},${bv})`;ctx.shadowBlur=W*.055;
+        ctx.beginPath();ctx.arc(ex,ey,dr*.55,0,Math.PI*2);
+        ctx.fillStyle='rgba(255,255,255,.45)';ctx.fill();
+        ctx.shadowBlur=0;
+      }
+    }
+    // Centre text
+    const now=new Date(), daysInMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(), dayOfMonth=now.getDate();
+    const remain=budget>0?budget-spent:null;
+    byId('ringSpent').textContent=money(spent,'SGD');
+    const rEl=byId('ringRemain');
+    if(rEl){
+      if(remain===null){rEl.textContent='—';rEl.style.color='var(--dim)';}
+      else if(remain<0){rEl.textContent=money(Math.abs(remain),'SGD')+' over';rEl.style.color='var(--red)';}
+      else{rEl.textContent=money(remain,'SGD');rEl.style.color=remain<=budget*.2?'var(--yellow)':'var(--success)';}
+    }
+    byId('ringStat1').textContent=budget>0?money(budget,'SGD'):'—';
+    byId('ringStat2').textContent=dayOfMonth>0?(money(spent/dayOfMonth,'SGD')+' / '+dayOfMonth+'d'):'—';
+    byId('ringStat3').textContent=String(daysInMonth-dayOfMonth)+'d';
+  }
+  function renderDashboard(){renderRing();const mn=monthName(), sgd=totals('SGD',true), myr=totals('MYR',true);byId('sgdMonthLabel').textContent='SGD '+mn;byId('myrMonthLabel').textContent='MYR '+mn;byId('monthSgdBox').textContent=money(sgd,'SGD');byId('monthMyrBox').textContent=money(myr,'MYR');byId('dashboardToday').textContent='Today: '+new Date().toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});byId('dashboardMonth').textContent='Current month: '+mn;byId('trendBudgetBadge').textContent='SGD budget: '+money(budgetSGD,'SGD');renderCategoryCards()}
   function renderCategoryCards(){
     const m=catMap('SGD');
     byId('sgdCategoryCards').innerHTML=categories.map(cat=>{
