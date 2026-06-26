@@ -2176,42 +2176,125 @@ function drawLineChart(canvasId, pts, color, labelPrefix) {
   ctx2.fill();
 }
 
-// ── Render Chart Section ──────────────────────────────────────────────────────
+// ── Chart Time Filter ────────────────────────────────────────────────────────
+var CHART_RANGES = [
+  {key:'1W', label:'1W', days:7},
+  {key:'1M', label:'1M', days:30},
+  {key:'3M', label:'3M', days:90},
+  {key:'6M', label:'6M', days:180},
+  {key:'1Y', label:'1Y', days:365},
+  {key:'ALL', label:'All', days:9999},
+];
+window._chartRange = {}; // containerId -> range key
+
+function filterByRange(pts, rangeKey) {
+  if (rangeKey === 'ALL') return pts;
+  var days = (CHART_RANGES.find(function(r){return r.key===rangeKey;})||{days:9999}).days;
+  var cutoff = new Date(Date.now() - days*24*60*60*1000).toISOString().slice(0,10);
+  var filtered = pts.filter(function(p){return (p.date||'')>=cutoff;});
+  return filtered.length ? filtered : pts;
+}
+
+function chartRangeTabs(containerId, activeKey, onSelect) {
+  return '<div style="display:flex;gap:4px;margin-bottom:8px">'
+    +CHART_RANGES.map(function(r){
+      var active = (activeKey||'ALL')===r.key;
+      return '<div onclick="('+onSelect+')(\''+r.key+'\')" style="'
+        +'flex:1;text-align:center;font-size:10px;font-weight:'+(active?'700':'500')+';'
+        +'padding:5px 0;border-radius:7px;cursor:pointer;letter-spacing:0.5px;'
+        +'color:'+(active?'#fff':'rgba(255,255,255,0.25)')+';'
+        +'background:'+(active?'rgba(255,255,255,0.1)':'transparent')+';'
+        +'border:1px solid '+(active?'rgba(255,255,255,0.15)':'transparent')+';">'+r.label+'</div>';
+    }).join('')
+    +'</div>';
+}
+
+function buildChartHTML(containerId, canvasH) {
+  return '<canvas id="'+containerId+'-cv" width="1" height="'+(canvasH||130)+'" style="width:100%;height:'+(canvasH||130)+'px;display:block"></canvas>';
+}
+
+// ── Render Portfolio Chart with filters ───────────────────────────────────────
+window._pfHistCache = {};
 async function renderPortfolioChart(containerId, pf0, color) {
   var el = document.getElementById(containerId);
   if (!el) return;
-  el.innerHTML = '<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.2);padding:20px 0">Loading chart…</div>';
-  var pts = await buildPortfolioHistory(pf0);
-  if (!pts.length) { el.innerHTML='<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.15);padding:16px 0">No chart data</div>'; return; }
-  el.innerHTML = '<canvas id="'+containerId+'-cv" width="'+el.offsetWidth+'" height="120" style="width:100%;height:120px"></canvas>';
-  drawLineChart(containerId+'-cv', pts, color||'#d4a847', 'RM ');
+  var range = window._chartRange[containerId] || 'ALL';
+  el.innerHTML = chartRangeTabs(containerId, range,
+    'function(rk){window._chartRange["'+containerId+'"]=rk;renderPortfolioChart("'+containerId+'",window._pfObj["'+containerId+'"],window._pfColor["'+containerId+'"]);}')
+    +'<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.2);padding:16px 0">Loading…</div>';
+  window._pfObj = window._pfObj||{};
+  window._pfColor = window._pfColor||{};
+  window._pfObj[containerId] = pf0;
+  window._pfColor[containerId] = color||'#d4a847';
+
+  var cacheKey = pf0.id;
+  if (!window._pfHistCache[cacheKey]) {
+    window._pfHistCache[cacheKey] = await buildPortfolioHistory(pf0);
+  }
+  var allPts = window._pfHistCache[cacheKey];
+  var pts = filterByRange(allPts, range);
+
+  var tabsHtml = chartRangeTabs(containerId, range,
+    'function(rk){window._chartRange["'+containerId+'"]=rk;renderPortfolioChart("'+containerId+'",window._pfObj["'+containerId+'"],window._pfColor["'+containerId+'"]);}');
+  if (!pts.length) { el.innerHTML=tabsHtml+'<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.15);padding:16px 0">No data</div>'; return; }
+  el.innerHTML = tabsHtml + buildChartHTML(containerId, 120);
+  requestAnimationFrame(function(){
+    var cv = document.getElementById(containerId+'-cv');
+    if(cv){ cv.width=cv.offsetWidth||el.offsetWidth||300; drawLineChart(containerId+'-cv', pts, color||'#d4a847', 'RM '); }
+  });
 }
 
+// ── Render Stock Chart with filters ───────────────────────────────────────────
+window._stockHistCache = {};
 async function renderStockChart(containerId, stock, ccy, color) {
   var el = document.getElementById(containerId);
   if (!el) return;
-  el.innerHTML = '<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.2);padding:20px 0">Loading chart…</div>';
-  var pts = await buildStockHistory(stock, ccy);
-  if (!pts.length) { el.innerHTML='<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.15);padding:16px 0">No chart data</div>'; return; }
-  el.innerHTML = '<canvas id="'+containerId+'-cv" width="'+el.offsetWidth+'" height="120" style="width:100%;height:120px"></canvas>';
-  drawLineChart(containerId+'-cv', pts, color||'#6aa3c8', ccy+' ');
+  var range = window._chartRange[containerId] || 'ALL';
+  window._stockObj = window._stockObj||{};
+  window._stockObj[containerId] = {stock:stock,ccy:ccy,color:color};
+
+  var tabsHtml = chartRangeTabs(containerId, range,
+    'function(rk){window._chartRange["'+containerId+'"]=rk;var o=window._stockObj["'+containerId+'"];renderStockChart("'+containerId+'",o.stock,o.ccy,o.color);}');
+  el.innerHTML = tabsHtml+'<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.2);padding:16px 0">Loading…</div>';
+
+  var cacheKey = stock;
+  if (!window._stockHistCache[cacheKey]) {
+    window._stockHistCache[cacheKey] = await buildStockHistory(stock, ccy);
+  }
+  var allPts = window._stockHistCache[cacheKey];
+  var pts = filterByRange(allPts, range);
+
+  el.innerHTML = tabsHtml + (pts.length ? buildChartHTML(containerId, 120) : '<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.15);padding:16px 0">No data</div>');
+  if (pts.length) requestAnimationFrame(function(){
+    var cv = document.getElementById(containerId+'-cv');
+    if(cv){ cv.width=cv.offsetWidth||el.offsetWidth||300; drawLineChart(containerId+'-cv', pts, color||'#6aa3c8', ccy+' '); }
+  });
 }
 
-// ── All-Portfolio Chart ───────────────────────────────────────────────────────
+// ── All-Portfolio Chart with filters ─────────────────────────────────────────
+window._allHistCache = null;
 async function renderAllPortfoliosChart(containerId) {
   var el = document.getElementById(containerId);
   if (!el) return;
-  el.innerHTML = '<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.2);padding:20px 0">Loading chart…</div>';
-  // Combine all portfolios
-  var allPts = {};
-  await Promise.all(S.portfolios.map(async function(pf0){
-    var pts = await buildPortfolioHistory(pf0);
-    pts.forEach(function(p){ allPts[p.date]=(allPts[p.date]||0)+p.value; });
-  }));
-  var combined = Object.keys(allPts).sort().map(function(d){ return {date:d,value:allPts[d]}; });
-  if (!combined.length) { el.innerHTML='<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.15);padding:16px 0">No chart data</div>'; return; }
-  el.innerHTML = '<canvas id="'+containerId+'-cv" width="'+el.offsetWidth+'" height="140" style="width:100%;height:140px"></canvas>';
-  drawLineChart(containerId+'-cv', combined, '#d4a847', 'RM ');
+  var range = window._chartRange[containerId] || 'ALL';
+  var tabsHtml = chartRangeTabs(containerId, range,
+    'function(rk){window._chartRange["'+containerId+'"]=rk;renderAllPortfoliosChart("'+containerId+'");}');
+  el.innerHTML = tabsHtml+'<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.2);padding:16px 0">Loading…</div>';
+
+  if (!window._allHistCache) {
+    var allPts = {};
+    await Promise.all(S.portfolios.map(async function(pf0){
+      var pts = await buildPortfolioHistory(pf0);
+      pts.forEach(function(p){ allPts[p.date]=(allPts[p.date]||0)+p.value; });
+    }));
+    window._allHistCache = Object.keys(allPts).sort().map(function(d){return{date:d,value:allPts[d]};});
+  }
+  var pts = filterByRange(window._allHistCache, range);
+  el.innerHTML = tabsHtml + (pts.length ? buildChartHTML(containerId, 140) : '<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.15);padding:16px 0">No data</div>');
+  if (pts.length) requestAnimationFrame(function(){
+    var cv = document.getElementById(containerId+'-cv');
+    if(cv){ cv.width=cv.offsetWidth||el.offsetWidth||300; drawLineChart(containerId+'-cv', pts, '#d4a847', 'RM '); }
+  });
 }
 
 function liveClock(){
