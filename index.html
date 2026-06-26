@@ -2432,24 +2432,30 @@ function attachChartEvents(containerId){
     redrawChart(containerId);
     var ctx2=cv.getContext('2d');
 
-    // Vertical line
+    // Crosshair lines
+    var isUpCh=vals[vals.length-1]>=vals[0];
+    var chCol=isUpCh?'rgba(0,230,118,0.6)':'rgba(255,77,109,0.6)';
     ctx2.save();
-    ctx2.setLineDash([4,4]);
-    ctx2.strokeStyle='rgba(255,255,255,0.5)';
+    ctx2.setLineDash([3,4]);
+    ctx2.strokeStyle=chCol;
     ctx2.lineWidth=1;
     ctx2.beginPath();ctx2.moveTo(xPos,pad.t);ctx2.lineTo(xPos,H2-pad.b);ctx2.stroke();
-    // Horizontal line
     ctx2.beginPath();ctx2.moveTo(pad.l,yPos);ctx2.lineTo(W2-pad.r,yPos);ctx2.stroke();
     ctx2.setLineDash([]);
     ctx2.restore();
 
-    // Dot at intersection
-    ctx2.beginPath();ctx2.arc(xPos,yPos,5,0,Math.PI*2);
+    // Snap dot to the actual line value at this point
+    var isUpX=vals[vals.length-1]>=vals[0];
+    var snapCol=isUpX?'#00e676':'#ff4d6d';
+    // Outer glow
+    ctx2.beginPath();ctx2.arc(xPos,yPos,10,0,Math.PI*2);
+    ctx2.fillStyle=isUpX?'rgba(0,230,118,0.1)':'rgba(255,77,109,0.1)';ctx2.fill();
+    ctx2.beginPath();ctx2.arc(xPos,yPos,6,0,Math.PI*2);
+    ctx2.fillStyle=isUpX?'rgba(0,230,118,0.2)':'rgba(255,77,109,0.2)';ctx2.fill();
+    ctx2.beginPath();ctx2.arc(xPos,yPos,3.5,0,Math.PI*2);
     ctx2.fillStyle='#000';ctx2.fill();
-    ctx2.beginPath();ctx2.arc(xPos,yPos,4,0,Math.PI*2);
-    ctx2.fillStyle=st.color;ctx2.fill();
-    ctx2.beginPath();ctx2.arc(xPos,yPos,7,0,Math.PI*2);
-    ctx2.strokeStyle=st.color+'88';ctx2.lineWidth=2;ctx2.stroke();
+    ctx2.beginPath();ctx2.arc(xPos,yPos,2.5,0,Math.PI*2);
+    ctx2.fillStyle=snapCol;ctx2.fill();
 
     // X axis date label only (no Y axis pill)
     var lblV=(st.labelPrefix||'')+(val>=1000000?(val/1000000).toFixed(2)+'M':val>=1000?(val/1000).toFixed(1)+'k':val.toFixed(3));
@@ -2466,12 +2472,17 @@ function attachChartEvents(containerId){
 
     // Tooltip box top-right
     if(tip){
-      var chgPct=vals.length>1?((val-vals[0])/vals[0]*100):null;
-      tip.innerHTML='<span style="color:rgba(255,255,255,0.5);font-size:9px">'+p.date+'</span><br>'
-        +'<span style="font-size:13px;font-weight:700">'+lblV+'</span>'
-        +(chgPct!==null?'<br><span style="color:'+(chgPct>=0?'#00e676':'#ff5566')+';font-size:10px">'+(chgPct>=0?'+':'')+chgPct.toFixed(2)+'%</span>':'');
+      var chgPctX=vals.length>1?((val-vals[0])/vals[0]*100):null;
+      var isUpTip=chgPctX!==null&&chgPctX>=0;
+      tip.innerHTML='<span style="color:rgba(255,255,255,0.45);font-size:9px;letter-spacing:0.5px">'+p.date+'</span><br>'
+        +'<span style="font-size:14px;font-weight:700;color:#fff">'+lblV+'</span>'
+        +(chgPctX!==null?'<br><span style="color:'+(isUpTip?'#00e676':'#ff5566')+';font-size:10px;font-weight:600">'+(isUpTip?'+':'')+chgPctX.toFixed(2)+'%</span>':'');
       tip.style.display='block';
-      tip.style.left='auto';tip.style.right='6px';tip.style.transform='none';
+      tip.style.left='auto';tip.style.right='8px';tip.style.top='8px';tip.style.transform='none';
+      tip.style.background='rgba(10,10,20,0.92)';
+      tip.style.border='1px solid rgba(255,255,255,0.1)';
+      tip.style.borderRadius='8px';
+      tip.style.padding='6px 12px';
     }
   }
 
