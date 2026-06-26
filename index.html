@@ -1883,7 +1883,6 @@ let _priceUpdateStatus = 'idle'; // idle | fetching | done | error
 
 async function fetchLivePrices(forceRefresh) {
   const now = Date.now();
-  // Throttle: only fetch once every 5 minutes unless forced
   if (!forceRefresh && now - _lastPriceFetch < 5 * 60 * 1000) return;
   _lastPriceFetch = now;
   _priceUpdateStatus = 'fetching';
@@ -1891,34 +1890,38 @@ async function fetchLivePrices(forceRefresh) {
 
   const stocks = Object.keys(LIVE_TICKERS);
   let updated = 0, failed = [];
+  const debugLog = [];
 
   await Promise.all(stocks.map(async function(name) {
     const ticker = LIVE_TICKERS[name];
     const ccy = TICKER_CCY[name];
     try {
-      // Yahoo Finance v7 quote — most reliable for real-time price
       const ts2 = Date.now();
-      const url = 'https://query1.finance.yahoo.com/v7/finance/quote?symbols=' + ticker + '&fields=regularMarketPrice,previousClose&_=' + ts2;
-      // Try multiple proxies
+      // Use Yahoo Finance v8 chart endpoint - more reliable through proxies
+      const url = 'https://query1.finance.yahoo.com/v8/finance/chart/' + ticker + '?interval=1d&range=5d&_=' + ts2;
       const proxies = [
         'https://corsproxy.io/?' + encodeURIComponent(url),
-        'https://api.allorigins.win/raw?url=' + encodeURIComponent(url) + '&nocache=' + ts2,
-        'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url),
+        'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+        'https://thingproxy.freeboard.io/fetch/' + url,
       ];
       let price = null;
+      let lastErr = '';
       for (const p of proxies) {
         try {
-          const r = await fetch(p, {signal: AbortSignal.timeout(7000), cache:'no-store'});
-          if (!r.ok) continue;
-          const d = await r.json();
-          const q = d.quoteResponse && d.quoteResponse.result && d.quoteResponse.result[0];
-          if (q && (q.regularMarketPrice || q.previousClose)) {
-            price = q.regularMarketPrice || q.previousClose;
+          const r = await fetch(p, {signal: AbortSignal.timeout(8000), cache:'no-store'});
+          if (!r.ok){lastErr='HTTP'+r.status;continue;}
+          const txt = await r.text();
+          const d = JSON.parse(txt);
+          const meta = d.chart && d.chart.result && d.chart.result[0] && d.chart.result[0].meta;
+          if (meta && meta.regularMarketPrice > 0) {
+            price = meta.regularMarketPrice;
+            debugLog.push(name+'='+price+'✓');
             break;
           }
-        } catch(e2) { continue; }
+          lastErr='no price in response';
+        } catch(e2){lastErr=String(e2).slice(0,40);continue;}
       }
-      if (!price || price <= 0) throw new Error('No price from any proxy');
+      if (!price || price <= 0) throw new Error(lastErr||'no price');
       // Update price in ALL portfolios that have this stock
       S.portfolios.forEach(function(p) {
         const holdings = getHoldings(p, true);
@@ -1936,10 +1939,12 @@ async function fetchLivePrices(forceRefresh) {
   if (updated > 0) { save(); render(); }
   _priceUpdateStatus = failed.length === 0 ? 'done' : (updated > 0 ? 'partial' : 'error');
   _lastPriceFetch = Date.now();
+  _lastDebugLog = debugLog.join(' | ') + (failed.length ? ' | FAIL:'+failed.join(',') : '');
   updatePriceStatusBar();
-  // Auto-schedule next refresh in 5 min
   setTimeout(function() { fetchLivePrices(true); }, 5 * 60 * 1000);
 }
+let _lastDebugLog = '';
+function showPriceDebug(){alert(_lastDebugLog||'No debug log yet');}
 
 function updatePriceStatusBar() {
   const bar = document.getElementById('price-status-bar');
@@ -1949,11 +1954,11 @@ function updatePriceStatusBar() {
   if (_priceUpdateStatus === 'fetching') {
     bar.innerHTML = '<span style="color:rgba(0,200,255,0.6);animation:spin 1s linear infinite;display:inline-block">↻</span> Fetching live prices…';
   } else if (_priceUpdateStatus === 'done') {
-    bar.innerHTML = '✓ Prices updated · ' + ts + ' &nbsp;<span onclick="fetchLivePrices(true)" style="cursor:pointer;color:rgba(0,200,255,0.5)">Refresh</span>';
+    bar.innerHTML = '✓ Prices updated · ' + ts + ' <span onclick="showPriceDebug()" style="cursor:pointer;color:rgba(0,200,255,0.3)">·detail</span> <span onclick="fetchLivePrices(true)" style="cursor:pointer;color:rgba(0,200,255,0.5)">↻</span>';
   } else if (_priceUpdateStatus === 'partial') {
-    bar.innerHTML = '⚠ Partial update · ' + ts + ' &nbsp;<span onclick="fetchLivePrices(true)" style="cursor:pointer;color:rgba(0,200,255,0.5)">Retry</span>';
+    bar.innerHTML = '⚠ Partial · ' + ts + ' <span onclick="showPriceDebug()" style="cursor:pointer;color:rgba(255,200,0,0.5)">·detail</span> <span onclick="fetchLivePrices(true)" style="cursor:pointer;color:rgba(0,200,255,0.5)">↻ retry</span>';
   } else if (_priceUpdateStatus === 'error') {
-    bar.innerHTML = '✕ Update failed &nbsp;<span onclick="fetchLivePrices(true)" style="cursor:pointer;color:rgba(0,200,255,0.5)">Retry</span>';
+    bar.innerHTML = '✕ Failed <span onclick="showPriceDebug()" style="cursor:pointer;color:rgba(255,100,100,0.5)">·detail</span> <span onclick="fetchLivePrices(true)" style="cursor:pointer;color:rgba(0,200,255,0.5)">↻ retry</span>';
   }
 }
 
