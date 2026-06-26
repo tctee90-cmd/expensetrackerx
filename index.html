@@ -688,11 +688,36 @@ async function fetchFXAndFill(){
 
 async function fetchFX(){
   try{
-    const ccys=Object.keys(_fx).filter(c=>c!=='MYR');
-    const r=await fetch('https://api.frankfurter.app/latest?from=MYR&to='+ccys.join(','));
-    if(!r.ok)return;
-    const d=await r.json();
-    Object.entries(d.rates||{}).forEach(([ccy,rate])=>{if(rate>0)_fx[ccy]=Math.round((1/rate)*10000)/10000;});
+    const ccys=Object.keys(_fx).filter(function(c){return c!=='MYR';});
+    if(!ccys.length)return;
+    // Try frankfurter.app (free, no key needed, covers SGD/USD/GBP/HKD)
+    const proxies=[
+      'https://api.frankfurter.app/latest?from=MYR&to='+ccys.join(','),
+      'https://corsproxy.io/?'+encodeURIComponent('https://api.frankfurter.app/latest?from=MYR&to='+ccys.join(',')),
+    ];
+    let updated=false;
+    for(const url of proxies){
+      try{
+        const r=await fetch(url,{cache:'no-store',signal:AbortSignal.timeout(6000)});
+        if(!r.ok)continue;
+        const d=await r.json();
+        Object.entries(d.rates||{}).forEach(function([ccy,rate]){
+          if(rate>0){
+            _fx[ccy]=Math.round((1/rate)*10000)/10000;
+            // Update settings inputs if visible
+            const el=document.getElementById('sfx-'+ccy);
+            if(el)el.value=_fx[ccy].toFixed(4);
+          }
+        });
+        updated=true;
+        break;
+      }catch(e2){continue;}
+    }
+    if(updated){
+      // Save to localStorage and re-render so values update immediately
+      if(S){S.fx=Object.assign({},_fx);save();}
+      render();
+    }
   }catch(e){}
 }
 fetchFX();setInterval(fetchFX,10*60*1000); // refresh every 10 mins
@@ -1085,15 +1110,15 @@ function renderSettingsPx(){
   const usedFxCcys=[...new Set(allStocks.map(function(s){return s.ccy;}))].filter(function(c){return c&&c!=='MYR';});
   const fxList=document.getElementById('settings-fx-list');
   if(fxList&&usedFxCcys.length){
-    fxList.innerHTML='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:2px;padding-top:3px;border-top:1px solid var(--b1)">'
-      +'<span style="font-size:9px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap">FX→MYR</span>'
+    fxList.innerHTML='<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.05)">'
+      +'<div style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px">FX Rates · Auto-updated</div>'
       +usedFxCcys.map(function(ccy){
-        return'<div style="display:flex;align-items:center;gap:2px;flex:1;min-width:70px">'
-          +'<span style="font-size:10px;color:var(--t2);white-space:nowrap">'+ccy+'=</span>'
-          +'<div style="overflow:hidden;height:22px;flex:1;min-width:0"><input type="number" id="sfx-'+ccy+'" step="0.01" value="'+(_fx[ccy]||0).toFixed(2)+'" style="text-align:center;font-size:16px;transform:scale(0.75);transform-origin:top center;width:133%;height:29px;margin-left:-17%;border-radius:7px;padding:0 2px"></div>'
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04)">'
+          +'<span style="font-size:11px;color:rgba(255,255,255,0.4)">1 '+ccy+' → MYR</span>'
+          +'<span style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.6)">'+(_fx[ccy]||0).toFixed(4)+'</span>'
           +'</div>';
       }).join('')
-      +'<button onclick="spxFromSettings()" class="pri" style="height:24px;font-size:11px;padding:0 10px;flex-shrink:0;margin-left:auto">Save FX</button>'
+      +'<div style="font-size:9px;color:rgba(255,255,255,0.15);margin-top:5px;font-style:italic">Rates from frankfurter.app · refreshes every 10 min</div>'
       +'</div>';
   } else if(fxList){fxList.innerHTML='';}
   window._settingsStocks=allStocks;window._settingsFxCcys=usedFxCcys;
@@ -1868,7 +1893,7 @@ const LIVE_TICKERS = {
   // SGD stocks (.SI = Singapore Exchange)
   'CapLand Ascendas':'A17U.SI','MapleTree':'ME8U.SI','TopGlove SG':'BVA.SI',
   // MYR stocks (.KL = Bursa Malaysia)
-  'Harta':'5168.KL','Skyechip':'0249.KL','Alpha':'0255.KL'
+  'Harta':'5168.KL','Skyechip':'5357.KL','Alpha':'0255.KL'
 };
 const TICKER_CCY = {
   'AMD':'USD','CRM':'USD','DRAM ETF':'USD','IBIT':'USD','MSFT':'USD',
