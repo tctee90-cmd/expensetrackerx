@@ -1880,7 +1880,7 @@ function goPortfolioCcy(id,ccy){
     if(dy>threshold){
       if(txt)txt.textContent='Updating prices…';
       if(spinner)spinner.classList.add('spin');
-      window._allHistCache=null;window._pfHistCache={};window._stockHistCache={};
+      window._allHistCache=null;window._pfHistCache={};window._stockHistCache={};window._histFxCache={};
       Promise.all([fetchLivePrices(true), fetchFX()]).then(function(){
         if(txt)txt.textContent='✓ Updated';
         if(spinner)spinner.classList.remove('spin');
@@ -2016,7 +2016,7 @@ async function fetchHistorical(ticker, fromDate) {
   if (window._histCache[ticker]) return window._histCache[ticker];
   const from = Math.floor(new Date(fromDate).getTime()/1000);
   const to   = Math.floor(Date.now()/1000);
-  const url  = 'https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1wk&period1='+from+'&period2='+to;
+  const url  = 'https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1wk&period1='+from+'&period2='+to+'&events=div%2Csplits&includeAdjustedClose=true';
   const proxies = [
     'https://corsproxy.io/?'+encodeURIComponent(url),
     'https://api.allorigins.win/raw?url='+encodeURIComponent(url),
@@ -2029,10 +2029,9 @@ async function fetchHistorical(ticker, fromDate) {
       var res = d.chart&&d.chart.result&&d.chart.result[0];
       if (!res) continue;
       var times = res.timestamp||[];
-      // Use adjclose (split/dividend adjusted) for accurate historical prices
-      var adjCloses = (res.indicators&&res.indicators.adjclose&&res.indicators.adjclose[0]&&res.indicators.adjclose[0].adjclose)||[];
-      var rawCloses = (res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
-      var closes = adjCloses.length ? adjCloses : rawCloses;
+      // Use RAW close price — user's qty already reflects any bonus/split adjustments
+      // adjclose can double-count when user holds post-split qty
+      var closes = (res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
       var pts = [];
       for (var j=0;j<times.length;j++) {
         if (closes[j]!=null&&closes[j]>0) pts.push({date:new Date(times[j]*1000).toISOString().slice(0,10), close:closes[j]});
@@ -2043,35 +2042,84 @@ async function fetchHistorical(ticker, fromDate) {
   return [];
 }
 
+// ── Historical FX Rates ──────────────────────────────────────────────────────
+window._histFxCache = {}; // 'USD' -> [{date, rate}] (rate = 1 unit -> MYR)
+
+async function fetchHistoricalFX(ccy, fromDate) {
+  if(ccy==='MYR')return null;
+  if(window._histFxCache[ccy])return window._histFxCache[ccy];
+  // Yahoo Finance: get ccy/MYR pair e.g. USDMYR=X
+  var ticker = ccy+'MYR=X';
+  var from = Math.floor(new Date(fromDate).getTime()/1000);
+  var to = Math.floor(Date.now()/1000);
+  var url = 'https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?interval=1wk&period1='+from+'&period2='+to+'&includeAdjustedClose=true';
+  var proxies = [
+    'https://corsproxy.io/?'+encodeURIComponent(url),
+    'https://api.allorigins.win/raw?url='+encodeURIComponent(url),
+  ];
+  for(var i=0;i<proxies.length;i++){
+    try{
+      var r=await fetch(proxies[i],{cache:'no-store',signal:AbortSignal.timeout(8000)});
+      if(!r.ok)continue;
+      var d=await r.json();
+      var res=d.chart&&d.chart.result&&d.chart.result[0];
+      if(!res)continue;
+      var times=res.timestamp||[];
+      var closes=(res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
+      var pts=[];
+      for(var j=0;j<times.length;j++){
+        if(closes[j]!=null&&closes[j]>0)pts.push({date:new Date(times[j]*1000).toISOString().slice(0,10),rate:closes[j]});
+      }
+      if(pts.length){window._histFxCache[ccy]=pts;return pts;}
+    }catch(e2){continue;}
+  }
+  return null;
+}
+
+function getFxRateOnDate(ccy, date, histFxMap) {
+  if(ccy==='MYR')return 1;
+  var pts = histFxMap&&histFxMap[ccy];
+  if(!pts||!pts.length)return _fx[ccy]||1; // fallback to today's rate
+  // Find closest rate on or before this date
+  for(var i=pts.length-1;i>=0;i--){
+    if(pts[i].date<=date)return pts[i].rate;
+  }
+  return pts[0].rate; // use earliest available
+}
+
 // ── Portfolio Value History ────────────────────────────────────────────────────
 async function buildPortfolioHistory(pf0) {
-  // Get all stocks with tickers
   var holdings = getHoldings(pf0, false);
   var stocks = holdings.filter(function(h){ return LIVE_TICKERS[h.stock]; });
   if (!stocks.length) return [];
 
-  // Get earliest tx date
   var allTxDates = pf0.transactions.map(function(t){return t.date;}).sort();
   var fromDate = allTxDates[0] || '2020-01-01';
 
-  // Fetch historical for all stocks in parallel
+  // Fetch historical prices AND historical FX rates in parallel
   var histMap = {};
-  await Promise.all(stocks.map(async function(h){
-    var pts = await fetchHistorical(LIVE_TICKERS[h.stock], fromDate);
-    histMap[h.stock] = pts;
-  }));
+  var usedCcys = [...new Set(stocks.map(function(h){return TICKER_CCY[h.stock]||'MYR';}))].filter(function(c){return c!=='MYR';});
+  var histFxMap = {};
 
-  // Get all weekly dates across all stocks
+  await Promise.all([
+    ...stocks.map(async function(h){
+      var pts = await fetchHistorical(LIVE_TICKERS[h.stock], fromDate);
+      histMap[h.stock] = pts;
+    }),
+    ...usedCcys.map(async function(ccy){
+      var pts = await fetchHistoricalFX(ccy, fromDate);
+      if(pts)histFxMap[ccy] = pts;
+    })
+  ]);
+
   var dateSet = {};
   Object.values(histMap).forEach(function(pts){ pts.forEach(function(p){ dateSet[p.date]=1; }); });
   var dates = Object.keys(dateSet).sort();
 
-  // For each date, calculate portfolio value
   var txSorted = pf0.transactions.filter(function(t){return ['Buy','Sell'].includes(t.type);}).sort(function(a,b){return a.date.localeCompare(b.date);});
 
   var results = [];
   dates.forEach(function(date){
-    // Calculate holdings qty on this date
     var qtys = {};
     txSorted.forEach(function(tx){
       if (tx.date > date) return;
@@ -2080,25 +2128,56 @@ async function buildPortfolioHistory(pf0) {
       else if (tx.type==='Sell') qtys[tx.stock] -= +tx.qty;
     });
 
-    // Calculate value in MYR
     var totalMYR = 0;
     Object.keys(qtys).forEach(function(stock){
       var qty = qtys[stock];
       if (qty <= 0) return;
       var hist = histMap[stock];
       if (!hist||!hist.length) return;
-      // Find closest price on or before this date
       var price = null;
       for (var i=hist.length-1;i>=0;i--) {
         if (hist[i].date <= date) { price=hist[i].close; break; }
       }
       if (!price) return;
       var ccy = TICKER_CCY[stock]||'MYR';
-      totalMYR += price * qty * (_fx[ccy]||1);
+      // Use historical FX rate for this date, not today's rate
+      var fxRate = getFxRateOnDate(ccy, date, histFxMap);
+      totalMYR += price * qty * fxRate;
     });
 
     if (totalMYR > 0) results.push({date:date, value:Math.round(totalMYR)});
   });
+
+  // Append today's actual live value as the final data point
+  // so chart end matches the dashboard total exactly
+  var todayDate = new Date().toISOString().slice(0,10);
+  var todayMYR = 0;
+  // Get current qty for each stock
+  var finalQtys = {};
+  txSorted.forEach(function(tx){
+    if(!finalQtys[tx.stock])finalQtys[tx.stock]=0;
+    if(tx.type==='Buy')finalQtys[tx.stock]+=+tx.qty;
+    else if(tx.type==='Sell')finalQtys[tx.stock]-=+tx.qty;
+  });
+  Object.keys(finalQtys).forEach(function(stock){
+    var qty=finalQtys[stock];
+    if(qty<=0)return;
+    var mp=pf0.prices[stock]||{};
+    var price=mp.price||0;
+    var ccy=mp.ccy||'MYR';
+    if(price>0)todayMYR+=qty*price*(_fx[ccy]||1);
+  });
+  // Add cash balances
+  if(pf0.cashBalances){Object.keys(pf0.cashBalances).forEach(function(ccy){todayMYR+=((pf0.cashBalances[ccy]||0)*(_fx[ccy]||1));});}
+  if(todayMYR>0){
+    // Replace last point if it's the same week, otherwise append
+    if(results.length&&results[results.length-1].date>=todayDate.slice(0,7)){
+      results[results.length-1]={date:todayDate,value:Math.round(todayMYR)};
+    } else {
+      results.push({date:todayDate,value:Math.round(todayMYR)});
+    }
+  }
+
   return results;
 }
 
@@ -2883,7 +2962,7 @@ function renderOverview(p){
   </div>`;
 
   const pfColor=p.color||'#d4a847';
-  const chartSection='<div style="margin-bottom:14px"><div style="font-size:8px;font-weight:600;letter-spacing:2px;color:rgba(255,255,255,0.2);text-transform:uppercase;margin-bottom:6px">Portfolio Value · All Time</div><div id="ov-chart-'+p.id+'" style="background:rgba(255,255,255,0.02);border-radius:10px;overflow:hidden;min-height:30px"></div></div>';
+  const chartSection='<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div style="font-size:8px;font-weight:600;letter-spacing:2px;color:rgba(255,255,255,0.2);text-transform:uppercase">Portfolio Value · All Time</div><div style="font-size:8px;color:rgba(255,255,255,0.1);letter-spacing:0.5px">Est. using adj. prices</div></div><div id="ov-chart-'+p.id+'" style="background:rgba(255,255,255,0.02);border-radius:10px;overflow:hidden;min-height:30px"></div></div>';
   return `<div style="padding:14px 16px 0;min-height:100vh;background:radial-gradient(ellipse at 25% 58%,rgba(120,80,10,0.06) 0%,transparent 42%),radial-gradient(ellipse at 72% 42%,rgba(8,80,40,0.04) 0%,transparent 38%),#020202">${topCard}${chartSection}${assetSummary}<div style="height:12px"></div>${holdingsCard}</div>`;
 }
 
@@ -5934,7 +6013,7 @@ $('bxl').addEventListener('click',doExcel);
 $('restore-input').addEventListener('change',doRestore);
 render();
 // Auto-fetch prices on open
-window._allHistCache=null;window._pfHistCache={};window._stockHistCache={};
+window._allHistCache=null;window._pfHistCache={};window._stockHistCache={};window._histFxCache={};
 setTimeout(function(){fetchLivePrices(true);},1800);
 showWelcomeIfFirstLoad();
 
