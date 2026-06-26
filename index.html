@@ -2029,10 +2029,13 @@ async function fetchHistorical(ticker, fromDate) {
       var res = d.chart&&d.chart.result&&d.chart.result[0];
       if (!res) continue;
       var times = res.timestamp||[];
-      var closes = (res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
+      // Use adjclose (split/dividend adjusted) for accurate historical prices
+      var adjCloses = (res.indicators&&res.indicators.adjclose&&res.indicators.adjclose[0]&&res.indicators.adjclose[0].adjclose)||[];
+      var rawCloses = (res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
+      var closes = adjCloses.length ? adjCloses : rawCloses;
       var pts = [];
       for (var j=0;j<times.length;j++) {
-        if (closes[j]!=null) pts.push({date:new Date(times[j]*1000).toISOString().slice(0,10), close:closes[j]});
+        if (closes[j]!=null&&closes[j]>0) pts.push({date:new Date(times[j]*1000).toISOString().slice(0,10), close:closes[j]});
       }
       if (pts.length) { window._histCache[ticker]=pts; return pts; }
     } catch(e2) { continue; }
@@ -2229,7 +2232,18 @@ function initChartWidget(containerId,allPts,color,labelPrefix,canvasH){
   requestAnimationFrame(function(){
     var cv=document.getElementById(containerId+'-cv');
     if(!cv)return;
-    cv.width=cv.offsetWidth||300;cv.height=st.canvasH;
+    var dpr=window.devicePixelRatio||1;
+    var displayW=cv.offsetWidth||300;
+    var displayH=st.canvasH;
+    // Set actual pixel size
+    cv.width=displayW*dpr;
+    cv.height=displayH*dpr;
+    // Scale CSS display size
+    cv.style.width=displayW+'px';
+    cv.style.height=displayH+'px';
+    // Scale context so drawing coords match CSS coords
+    var ctx2=cv.getContext('2d');
+    ctx2.scale(dpr,dpr);
     redrawChart(containerId);
     attachChartEvents(containerId);
   });
@@ -2258,6 +2272,8 @@ function initChartWidget(containerId,allPts,color,labelPrefix,canvasH){
 function redrawChart(containerId){
   var st=window._chartState[containerId];if(!st||!st.allPts)return;
   var cv=document.getElementById(containerId+'-cv');if(!cv)return;
+  // Use CSS display size (not physical pixel size) for all layout calculations
+  var dpr=window.devicePixelRatio||1;
   var allPts=st.allPts;if(!allPts.length)return;
 
   // When panning: use allPts as base (pan across full history)
@@ -2281,7 +2297,8 @@ function redrawChart(containerId){
   if(!pts.length)pts=allPts;
 
   var ctx2=cv.getContext('2d');
-  var W2=cv.width,H2=cv.height;
+  var W2=cv.offsetWidth||cv.width/dpr||300;
+  var H2=cv.offsetHeight||cv.height/dpr||st.canvasH||130;
   var pad={t:16,r:52,b:28,l:58};
   var cw=W2-pad.l-pad.r,ch=H2-pad.t-pad.b;
   ctx2.clearRect(0,0,W2,H2);
@@ -2411,11 +2428,13 @@ function attachChartEvents(containerId){
     var rect=wrap.getBoundingClientRect();
     var pts=getVisiblePts();
     if(!pts.length)return;
-    var pad={t:16,r:12,b:28,l:58};
-    var W2=cv.width,H2=cv.height;
+    var pad={t:16,r:52,b:28,l:58}; // must match redrawChart pad
+    var dprX=window.devicePixelRatio||1;
+    var W2=cv.offsetWidth||cv.width/dprX||300;
+    var H2=cv.offsetHeight||cv.height/dprX||st.canvasH||130;
     var cw=W2-pad.l-pad.r,ch=H2-pad.t-pad.b;
-    // Map touch X to canvas X
-    var relX=(touchX-rect.left)/rect.width*W2;
+    // Use display coordinates directly (redrawChart already handles DPR via ctx.scale)
+    var relX=(touchX-rect.left)*(W2/rect.width);
     var frac=Math.max(0,Math.min(1,(relX-pad.l)/cw));
     var idx=Math.round(frac*(pts.length-1));
     idx=Math.max(0,Math.min(pts.length-1,idx));
@@ -5915,6 +5934,7 @@ $('bxl').addEventListener('click',doExcel);
 $('restore-input').addEventListener('change',doRestore);
 render();
 // Auto-fetch prices on open
+window._allHistCache=null;window._pfHistCache={};window._stockHistCache={};
 setTimeout(function(){fetchLivePrices(true);},1800);
 showWelcomeIfFirstLoad();
 
