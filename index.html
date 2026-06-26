@@ -200,6 +200,7 @@ button.ghost{border-color:rgba(255,255,255,0.06);color:var(--t2);background:tran
 /* ── Portfolio cards (dashboard/overview) ── */
 @keyframes pricespin{to{transform:rotate(360deg)}}
 @keyframes ptr-spin{to{transform:rotate(360deg)}}
+canvas{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;}
 #ptr-indicator{
   position:fixed;top:0;left:0;right:0;z-index:500;
   display:flex;align-items:center;justify-content:center;gap:8px;
@@ -727,7 +728,7 @@ async function fetchFX(){
     }
   }catch(e){}
 }
-fetchFX();setInterval(fetchFX,30*1000); // refresh every 30 seconds
+fetchFX(); // fetch once on open only — pull-to-refresh triggers again
 
 function toMYR(amount,ccy){
   if(ccy==='MYR')return amount;
@@ -1879,7 +1880,8 @@ function goPortfolioCcy(id,ccy){
     if(dy>threshold){
       if(txt)txt.textContent='Updating prices…';
       if(spinner)spinner.classList.add('spin');
-      fetchLivePrices(true).then(function(){
+      window._allHistCache=null;window._pfHistCache={};window._stockHistCache={};
+      Promise.all([fetchLivePrices(true), fetchFX()]).then(function(){
         if(txt)txt.textContent='✓ Updated';
         if(spinner)spinner.classList.remove('spin');
         setTimeout(function(){if(ind)ind.classList.remove('visible');},1000);
@@ -1985,7 +1987,7 @@ async function fetchLivePrices(forceRefresh) {
   _lastPriceFetch = Date.now();
   _lastDebugLog = debugLog.join(' | ') + (failed.length ? ' | FAIL:'+failed.join(',') : '');
   updatePriceStatusBar();
-  setTimeout(function() { fetchLivePrices(true); }, 30 * 1000);
+  // No auto-refresh — only on pull-to-refresh or open
 }
 let _lastDebugLog = '';
 function showPriceDebug(){alert(_lastDebugLog||'No debug log yet');}
@@ -2256,15 +2258,27 @@ function initChartWidget(containerId,allPts,color,labelPrefix,canvasH){
 function redrawChart(containerId){
   var st=window._chartState[containerId];if(!st||!st.allPts)return;
   var cv=document.getElementById(containerId+'-cv');if(!cv)return;
-  var allF=filterByRange(st.allPts,st.range);if(!allF.length)return;
+  var allPts=st.allPts;if(!allPts.length)return;
 
-  var total=allF.length;
+  // When panning: use allPts as base (pan across full history)
+  // visible window size based on selected range
   var scale=Math.max(1,st.scalePct||1);
-  var visible=Math.max(2,Math.round(total/scale));
+  var rangeDays=(CHART_RANGES.find(function(r){return r.key===st.range;})||{days:9999}).days;
+  var visible;
+  if(rangeDays>=9999){
+    visible=Math.max(2,Math.round(allPts.length/scale));
+  } else {
+    // e.g. 1M = show ~30 days worth of weekly points (~4 pts), 1Y = ~52 pts
+    var ptsPerDay=allPts.length>0?(allPts.length/((new Date(allPts[allPts.length-1].date)-new Date(allPts[0].date))/86400000||1)):1;
+    visible=Math.max(2,Math.round(rangeDays*ptsPerDay/scale));
+  }
+  visible=Math.min(visible,allPts.length);
+  var total=allPts.length;
   var maxOff=Math.max(0,total-visible);
   var off=Math.round((st.offsetPct||0)*maxOff);
   off=Math.max(0,Math.min(maxOff,off));
-  var pts=allF.slice(off,off+visible);
+  var pts=allPts.slice(off,off+visible);
+  if(!pts.length)pts=allPts;
 
   var ctx2=cv.getContext('2d');
   var W2=cv.width,H2=cv.height;
@@ -2341,12 +2355,21 @@ function attachChartEvents(containerId){
   var crosshairActive=false;
 
   function getVisiblePts(){
-    var allF=filterByRange(st.allPts,st.range);
+    var allPts2=st.allPts||[];
     var scale=Math.max(1,st.scalePct||1);
-    var visible=Math.max(2,Math.round(allF.length/scale));
-    var maxOff=Math.max(0,allF.length-visible);
-    var off=Math.round((st.offsetPct||0)*maxOff);
-    return allF.slice(Math.max(0,off),Math.min(allF.length,off+visible));
+    var rangeDays2=(CHART_RANGES.find(function(r){return r.key===st.range;})||{days:9999}).days;
+    var visible2;
+    if(rangeDays2>=9999){
+      visible2=Math.max(2,Math.round(allPts2.length/scale));
+    } else {
+      var ppd=allPts2.length>0?(allPts2.length/((new Date(allPts2[allPts2.length-1].date)-new Date(allPts2[0].date))/86400000||1)):1;
+      visible2=Math.max(2,Math.round(rangeDays2*ppd/scale));
+    }
+    visible2=Math.min(visible2,allPts2.length);
+    var maxOff2=Math.max(0,allPts2.length-visible2);
+    var off2=Math.round((st.offsetPct||0)*maxOff2);
+    off2=Math.max(0,Math.min(maxOff2,off2));
+    return allPts2.slice(off2,off2+visible2);
   }
 
   function drawCrosshair(touchX){
@@ -2393,22 +2416,18 @@ function attachChartEvents(containerId){
     ctx2.beginPath();ctx2.arc(xPos,yPos,7,0,Math.PI*2);
     ctx2.strokeStyle=st.color+'88';ctx2.lineWidth=2;ctx2.stroke();
 
-    // Y axis price label
+    // X axis date label only (no Y axis pill)
     var lblV=(st.labelPrefix||'')+(val>=1000000?(val/1000000).toFixed(2)+'M':val>=1000?(val/1000).toFixed(1)+'k':val.toFixed(3));
-    var yLblH=16,yLblW=ctx2.measureText(lblV).width+12;
-    ctx2.fillStyle=st.color;
-    ctx2.beginPath();ctx2.roundRect(pad.l-yLblW-2,yPos-yLblH/2,yLblW,yLblH,3);ctx2.fill();
-    ctx2.fillStyle='#000';ctx2.font='bold 9px system-ui';ctx2.textAlign='left';
-    ctx2.fillText(lblV,pad.l-yLblW+2,yPos+3.5);
-
-    // X axis date label
     var dateLbl=p.date;
-    var xLblW=ctx2.measureText(dateLbl).width+12,xLblH=16;
+    ctx2.font='bold 9px system-ui';
+    var xLblW=ctx2.measureText(dateLbl).width+14,xLblH=16;
     var xLblX=Math.max(pad.l,Math.min(W2-pad.r-xLblW,xPos-xLblW/2));
-    ctx2.fillStyle=st.color;
-    ctx2.beginPath();ctx2.roundRect(xLblX,H2-pad.b+1,xLblW,xLblH,3);ctx2.fill();
-    ctx2.fillStyle='#000';ctx2.font='bold 9px system-ui';ctx2.textAlign='center';
-    ctx2.fillText(dateLbl,xLblX+xLblW/2,H2-pad.b+11);
+    ctx2.fillStyle='rgba(30,30,30,0.9)';
+    ctx2.beginPath();ctx2.roundRect(xLblX,H2-pad.b+2,xLblW,xLblH,4);ctx2.fill();
+    ctx2.strokeStyle=st.color;ctx2.lineWidth=1;
+    ctx2.beginPath();ctx2.roundRect(xLblX,H2-pad.b+2,xLblW,xLblH,4);ctx2.stroke();
+    ctx2.fillStyle='#fff';ctx2.textAlign='center';
+    ctx2.fillText(dateLbl,xLblX+xLblW/2,H2-pad.b+12);
 
     // Tooltip box top-right
     if(tip){
@@ -2457,10 +2476,20 @@ function attachChartEvents(containerId){
         clearTimeout(longPressTimer);
         var dxPan=dragStartX-e.touches[0].clientX;
         var W2=cv.offsetWidth||300;
-        var allF=filterByRange(st.allPts,st.range);
-        var visible=Math.max(2,Math.round(allF.length/Math.max(1,st.scalePct||1)));
-        var maxOff=Math.max(1,allF.length-visible);
-        st.offsetPct=Math.max(0,Math.min(1,dragStartOffset+(dxPan/W2)));
+        // Use ALL pts for panning, not range-filtered
+        var allPtsForPan=st.allPts||[];
+        var scale=Math.max(1,st.scalePct||1);
+        // How many points are visible based on range
+        var rangeDays=(CHART_RANGES.find(function(r){return r.key===st.range;})||{days:9999}).days;
+        var rangePts=rangeDays>=9999?allPtsForPan.length:Math.min(allPtsForPan.length,Math.round(rangeDays*52/365)||30);
+        var visible=Math.max(2,Math.round(rangePts/scale));
+        var maxOff=Math.max(0,allPtsForPan.length-visible);
+        if(maxOff<=0){return;} // nothing to pan
+        // dxPan>0 = drag left = go forward in time (offsetPct increases)
+        // dxPan<0 = drag right = go back in time (offsetPct decreases)
+        var delta=dxPan/(W2*0.8); // sensitivity
+        st.offsetPct=Math.max(0,Math.min(1,dragStartOffset+delta));
+        st._panVisible=visible;
         redrawChart(containerId);
       }
     } else if(e.touches.length===2&&touchMode==='pinch'){
