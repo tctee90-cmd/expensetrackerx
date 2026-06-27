@@ -2029,9 +2029,12 @@ async function fetchHistorical(ticker, fromDate) {
       var res = d.chart&&d.chart.result&&d.chart.result[0];
       if (!res) continue;
       var times = res.timestamp||[];
-      // Use RAW close price — user's qty already reflects any bonus/split adjustments
-      // adjclose can double-count when user holds post-split qty
-      var closes = (res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
+      // Use adjclose — correctly accounts for all splits so prices match what user paid
+      // Raw close shows pre-split inflated prices for Bursa stocks like Harta
+      var adjCloses = (res.indicators&&res.indicators.adjclose&&res.indicators.adjclose[0]&&res.indicators.adjclose[0].adjclose)||[];
+      var rawCloses = (res.indicators&&res.indicators.quote&&res.indicators.quote[0]&&res.indicators.quote[0].close)||[];
+      // Use adjclose if available, else raw
+      var closes = (adjCloses.length&&adjCloses.some(function(x){return x!=null&&x>0;})) ? adjCloses : rawCloses;
       var pts = [];
       for (var j=0;j<times.length;j++) {
         if (closes[j]!=null&&closes[j]>0) pts.push({date:new Date(times[j]*1000).toISOString().slice(0,10), close:closes[j]});
