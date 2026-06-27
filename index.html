@@ -2292,11 +2292,11 @@ function filterByRange(pts,rangeKey){
   return f.length?f:pts;
 }
 
-function initChartWidget(containerId,allPts,color,labelPrefix,canvasH){
+function initChartWidget(containerId,allPts,color,labelPrefix,canvasH,costBasis){
   var el=document.getElementById(containerId);if(!el)return;
   if(!window._chartState[containerId])window._chartState[containerId]={range:'ALL',offsetPct:1,scalePct:1};
   var st=window._chartState[containerId];
-  st.allPts=allPts;st.color=color||'#d4a847';st.labelPrefix=labelPrefix||'';st.canvasH=canvasH||130;
+  st.allPts=allPts;st.color=color||'#d4a847';st.labelPrefix=labelPrefix||'';st.canvasH=canvasH||130;st.costBasis=costBasis||0;
 
   var tabsHtml='<div id="'+containerId+'-tabs" style="display:flex;gap:3px;margin-bottom:8px">'
     +CHART_RANGES.map(function(r){
@@ -2393,52 +2393,80 @@ function redrawChart(containerId){
   function toX(i){return pad.l+(pts.length<2?cw/2:(i/(pts.length-1))*cw);}
   function toY(v){return pad.t+ch-((v-minV)/rng)*ch;}
 
-  // Subtle grid
-  ctx2.strokeStyle='rgba(255,255,255,0.05)';ctx2.lineWidth=1;
+  // Determine up/down
+  var isUp=vals[vals.length-1]>=(st.costBasis>0?st.costBasis/vals.length:vals[0]);
+  var lineCol=isUp?'#00e5b0':'#ff3d6e';
+  var glowR=isUp?'0,229,176':'255,61,110';
+
+  // ── Background: dark with subtle mesh ──
+  ctx2.fillStyle='rgba(0,0,0,0.3)';
+  ctx2.fillRect(pad.l,pad.t,cw,ch);
+
+  // Horizontal scan lines — very subtle
+  for(var sl=0;sl<ch;sl+=6){
+    ctx2.fillStyle='rgba(255,255,255,0.012)';
+    ctx2.fillRect(pad.l,pad.t+sl,cw,1);
+  }
+
+  // Grid lines — futuristic cyan tint
   [0.25,0.5,0.75].forEach(function(f){
     var y=pad.t+ch*f;
-    ctx2.setLineDash([4,6]);
+    ctx2.save();
+    ctx2.setLineDash([2,8]);
+    ctx2.strokeStyle='rgba(0,200,255,0.08)';
+    ctx2.lineWidth=1;
     ctx2.beginPath();ctx2.moveTo(pad.l,y);ctx2.lineTo(pad.l+cw,y);ctx2.stroke();
+    ctx2.restore();
   });
-  ctx2.setLineDash([]);
 
-  // Determine up/down colour for this visible window
-  var isUp=vals[vals.length-1]>=vals[0];
-  var lineCol=isUp?'#00e676':'#ff4d6d';
-  var glowCol=isUp?'rgba(0,230,118,':'rgba(255,77,109,';
+  // Vertical grid lines
+  [0.25,0.5,0.75].forEach(function(f){
+    var x=pad.l+cw*f;
+    ctx2.save();
+    ctx2.setLineDash([2,10]);
+    ctx2.strokeStyle='rgba(0,200,255,0.05)';
+    ctx2.lineWidth=1;
+    ctx2.beginPath();ctx2.moveTo(x,pad.t);ctx2.lineTo(x,pad.t+ch);ctx2.stroke();
+    ctx2.restore();
+  });
 
-  // Rich gradient fill
+  // ── Gradient fill under line ──
   var grad=ctx2.createLinearGradient(0,pad.t,0,pad.t+ch);
-  grad.addColorStop(0,glowCol+'0.35)');
-  grad.addColorStop(0.4,glowCol+'0.15)');
-  grad.addColorStop(0.8,glowCol+'0.04)');
-  grad.addColorStop(1,glowCol+'0)');
+  grad.addColorStop(0,'rgba('+glowR+',0.4)');
+  grad.addColorStop(0.3,'rgba('+glowR+',0.15)');
+  grad.addColorStop(0.7,'rgba('+glowR+',0.04)');
+  grad.addColorStop(1,'rgba('+glowR+',0)');
   ctx2.beginPath();
   pts.forEach(function(p,i){i===0?ctx2.moveTo(toX(i),toY(vals[i])):ctx2.lineTo(toX(i),toY(vals[i]));});
-  ctx2.lineTo(toX(pts.length-1),H2-pad.b);ctx2.lineTo(toX(0),H2-pad.b);ctx2.closePath();
+  ctx2.lineTo(toX(pts.length-1),pad.t+ch);
+  ctx2.lineTo(toX(0),pad.t+ch);
+  ctx2.closePath();
   ctx2.fillStyle=grad;ctx2.fill();
 
-  // Glow effect — wide faint line behind main line
+  // ── Outer glow line (wide, soft) ──
   ctx2.beginPath();
   pts.forEach(function(p,i){i===0?ctx2.moveTo(toX(i),toY(vals[i])):ctx2.lineTo(toX(i),toY(vals[i]));});
-  ctx2.strokeStyle=glowCol+'0.2)';ctx2.lineWidth=6;ctx2.lineJoin='round';ctx2.lineCap='round';ctx2.stroke();
+  ctx2.strokeStyle='rgba('+glowR+',0.15)';ctx2.lineWidth=8;ctx2.lineJoin='round';ctx2.lineCap='round';ctx2.stroke();
 
-  // Main line — bright and crisp
+  // ── Mid glow line ──
   ctx2.beginPath();
   pts.forEach(function(p,i){i===0?ctx2.moveTo(toX(i),toY(vals[i])):ctx2.lineTo(toX(i),toY(vals[i]));});
-  ctx2.strokeStyle=lineCol;ctx2.lineWidth=2;ctx2.lineJoin='round';ctx2.lineCap='round';ctx2.stroke();
+  ctx2.strokeStyle='rgba('+glowR+',0.3)';ctx2.lineWidth=3;ctx2.lineJoin='round';ctx2.lineCap='round';ctx2.stroke();
 
-  // End dot — glowing
+  // ── Main crisp line ──
+  ctx2.beginPath();
+  pts.forEach(function(p,i){i===0?ctx2.moveTo(toX(i),toY(vals[i])):ctx2.lineTo(toX(i),toY(vals[i]));});
+  ctx2.strokeStyle=lineCol;ctx2.lineWidth=1.5;ctx2.lineJoin='round';ctx2.lineCap='round';ctx2.stroke();
+
+  // ── End dot — multi-ring pulse ──
   var lx=toX(pts.length-1),ly=toY(vals[vals.length-1]);
-  // Outer glow ring
-  ctx2.beginPath();ctx2.arc(lx,ly,8,0,Math.PI*2);
-  ctx2.fillStyle=glowCol+'0.12)';ctx2.fill();
-  ctx2.beginPath();ctx2.arc(lx,ly,5,0,Math.PI*2);
-  ctx2.fillStyle=glowCol+'0.25)';ctx2.fill();
-  // Inner dot
-  ctx2.beginPath();ctx2.arc(lx,ly,3,0,Math.PI*2);
-  ctx2.fillStyle='#000';ctx2.fill();
+  [14,9,5].forEach(function(r,i){
+    ctx2.beginPath();ctx2.arc(lx,ly,r,0,Math.PI*2);
+    ctx2.fillStyle='rgba('+glowR+','+(0.06+i*0.08)+')';ctx2.fill();
+  });
   ctx2.beginPath();ctx2.arc(lx,ly,2.5,0,Math.PI*2);
+  ctx2.fillStyle='#000';ctx2.fill();
+  ctx2.beginPath();ctx2.arc(lx,ly,2,0,Math.PI*2);
   ctx2.fillStyle=lineCol;ctx2.fill();
 
   // Y labels
@@ -2461,9 +2489,11 @@ function redrawChart(containerId){
     ctx2.textAlign='center';
   });
 
-  // % change badge — top right corner with background pill
-  if(vals.length>1){
-    var chg=(vals[vals.length-1]-vals[0])/vals[0]*100;
+  // % change badge — use cost basis if available, else first point
+  if(vals.length>0){
+    var lastVal=vals[vals.length-1];
+    var costBasis=st.costBasis||0;
+    var chg=costBasis>0?((lastVal-costBasis)/costBasis*100):((vals.length>1?(lastVal-vals[0])/vals[0]*100:0));
     var chgTxt=(chg>=0?'+':'')+chg.toFixed(2)+'%';
     var chgCol=chg>=0?'#00e676':'#ff5566';
     ctx2.font='bold 10px system-ui';
@@ -2662,7 +2692,11 @@ async function renderPortfolioChart(containerId,pf0,color){
   window._pfObj[containerId]=pf0;window._pfColor[containerId]=color||'#d4a847';
   el.innerHTML='<div style="text-align:center;font-size:10px;color:rgba(255,255,255,0.2);padding:16px 0">Loading chart…</div>';
   if(!window._pfHistCache[pf0.id])window._pfHistCache[pf0.id]=await buildPortfolioHistory(pf0);
-  initChartWidget(containerId,window._pfHistCache[pf0.id],color||'#d4a847','RM ',130);
+  // Calculate actual invested cost for accurate % display
+  var sum2=getSummary(pf0);
+  var costMYR=0;
+  Object.keys(sum2.cost||{}).forEach(function(c){costMYR+=toMYR(sum2.cost[c]||0,c);});
+  initChartWidget(containerId,window._pfHistCache[pf0.id],color||'#d4a847','RM ',130,costMYR);
 }
 
 window._stockHistCache={};window._stockObj={};
@@ -2686,7 +2720,10 @@ async function renderAllPortfoliosChart(containerId){
     }));
     window._allHistCache=Object.keys(allPts).sort().map(function(d){return{date:d,value:allPts[d]};});
   }
-  initChartWidget(containerId,window._allHistCache,'#d4a847','RM ',140);
+  // Total invested cost across all portfolios
+  var totalCostMYR=0;
+  S.portfolios.forEach(function(pf0){var s2=getSummary(pf0);Object.keys(s2.cost||{}).forEach(function(c){totalCostMYR+=toMYR(s2.cost[c]||0,c);});});
+  initChartWidget(containerId,window._allHistCache,'#d4a847','RM ',140,totalCostMYR);
 }
 
 
